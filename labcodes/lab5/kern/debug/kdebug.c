@@ -3,10 +3,7 @@
 #include <stab.h>
 #include <stdio.h>
 #include <string.h>
-#include <memlayout.h>
 #include <sync.h>
-#include <vmm.h>
-#include <proc.h>
 #include <kdebug.h>
 #include <kmonitor.h>
 #include <assert.h>
@@ -26,14 +23,6 @@ struct eipdebuginfo {
     int eip_fn_namelen;                     // length of function's name
     uintptr_t eip_fn_addr;                  // start address of function
     int eip_fn_narg;                        // number of function arguments
-};
-
-/* user STABS data structure  */
-struct userstabdata {
-    const struct stab *stabs;
-    const struct stab *stab_end;
-    const char *stabstr;
-    const char *stabstr_end;
 };
 
 /* *
@@ -141,41 +130,10 @@ debuginfo_eip(uintptr_t addr, struct eipdebuginfo *info) {
     info->eip_fn_addr = addr;
     info->eip_fn_narg = 0;
 
-    // find the relevant set of stabs
-    if (addr >= KERNBASE) {
-        stabs = __STAB_BEGIN__;
-        stab_end = __STAB_END__;
-        stabstr = __STABSTR_BEGIN__;
-        stabstr_end = __STABSTR_END__;
-    }
-    else {
-        // user-program linker script, tools/user.ld puts the information about the
-        // program's stabs (included __STAB_BEGIN__, __STAB_END__, __STABSTR_BEGIN__,
-        // and __STABSTR_END__) in a structure located at virtual address USTAB.
-        const struct userstabdata *usd = (struct userstabdata *)USTAB;
-
-        // make sure that debugger (current process) can access this memory
-        struct mm_struct *mm;
-        if (current == NULL || (mm = current->mm) == NULL) {
-            return -1;
-        }
-        if (!user_mem_check(mm, (uintptr_t)usd, sizeof(struct userstabdata), 0)) {
-            return -1;
-        }
-
-        stabs = usd->stabs;
-        stab_end = usd->stab_end;
-        stabstr = usd->stabstr;
-        stabstr_end = usd->stabstr_end;
-
-        // make sure the STABS and string table memory is valid
-        if (!user_mem_check(mm, (uintptr_t)stabs, (uintptr_t)stab_end - (uintptr_t)stabs, 0)) {
-            return -1;
-        }
-        if (!user_mem_check(mm, (uintptr_t)stabstr, stabstr_end - stabstr, 0)) {
-            return -1;
-        }
-    }
+    stabs = __STAB_BEGIN__;
+    stab_end = __STAB_END__;
+    stabstr = __STABSTR_BEGIN__;
+    stabstr_end = __STABSTR_END__;
 
     // String table validity checks
     if (stabstr_end <= stabstr || stabstr_end[-1] != 0) {
@@ -335,7 +293,7 @@ read_eip(void) {
  * */
 void
 print_stackframe(void) {
-     /* LAB1 YOUR CODE : STEP 1 */
+     /* LAB1 2012011363 : STEP 1 */
      /* (1) call read_ebp() to get the value of ebp. the type is (uint32_t);
       * (2) call read_eip() to get the value of eip. the type is (uint32_t);
       * (3) from 0 .. STACKFRAME_DEPTH
@@ -347,5 +305,18 @@ print_stackframe(void) {
       *           NOTICE: the calling funciton's return addr eip  = ss:[ebp+4]
       *                   the calling funciton's ebp = ss:[ebp]
       */
-}
+    uint32_t ebp = read_ebp(), eip = read_eip();
 
+    int i, j;
+    for (i = 0; ebp != 0 && i < STACKFRAME_DEPTH; i ++) {
+        cprintf("ebp:0x%08x eip:0x%08x args:", ebp, eip);
+        uint32_t *args = (uint32_t *)ebp + 2;
+        for (j = 0; j < 4; j ++) {
+            cprintf("0x%08x ", args[j]);
+        }
+        cprintf("\n");
+        print_debuginfo(eip - 1);
+        eip = ((uint32_t *)ebp)[1];
+        ebp = ((uint32_t *)ebp)[0];
+    }
+}
