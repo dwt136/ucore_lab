@@ -266,7 +266,7 @@ check_pgfault(void) {
     assert(sum == 0);
 
     page_remove(pgdir, ROUNDDOWN(addr, PGSIZE));
-    free_page(pa2page(pgdir[0]));
+    free_page(pde2page(pgdir[0]));
     pgdir[0] = 0;
 
     mm->pgdir = NULL;
@@ -365,12 +365,14 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     *
     */
     /*LAB3 EXERCISE 1: 2012011363*/
-    ptep = get_pte(mm->pgdir, addr, 1);
+    ptep = get_pte(mm->pgdir, addr, 1); //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
     if (!ptep) goto failed;
     if (*ptep == 0) {
+                            //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
         struct Page *page = pgdir_alloc_page(mm->pgdir, addr, perm);
         if (!page) goto failed;
-    } else {
+    }
+    else {
     /*LAB3 EXERCISE 2: 2012011363
     * Now we think this pte is a  swap entry, we should load data from disk to a page with phy addr,
     * and map the phy addr with logical addr, trigger swap manager to record the access situation of this page.
@@ -384,6 +386,10 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     */
         if(swap_init_ok) {
             struct Page *page=NULL;
+                                    //(1）According to the mm AND addr, try to load the content of right disk page
+                                    //    into the memory which page managed.
+                                    //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
+                                    //(3) make the page swappable.
             ret = swap_in(mm, addr, &page);
             if (ret != 0) goto failed;
             page_insert(mm->pgdir, page, addr, perm);
@@ -394,7 +400,8 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
             goto failed;
         }
    }
-    ret = 0;
-  failed:
+   ret = 0;
+failed:
     return ret;
 }
+
